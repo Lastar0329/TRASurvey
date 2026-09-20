@@ -1105,11 +1105,16 @@ function clearSetup() {
 //   3. 若從「已清掉 hash」的網址加到主畫面, 那個捷徑就再也沒有東西能種回設定。
 // 把 #setup= 留在網址裡, 主畫面捷徑每次開啟都會重新種回去, 上面三種情況全部免疫。
 // 代價: 網址變長, 分享連結時會把代理網址一起帶出去 —— 自用 App 可接受。
+var HASH_REJECTED = false;   // 網址帶了 #setup= 但用不了 —— 要講出來, 不能默默當沒設定
 function consumeSetupHash() {
-  var m = (location.hash || "").match(/^#setup=(.+)$/);
-  if (!m) return false;
-  var v = decodeURIComponent(m[1]).trim();
-  if (v.indexOf("https://") !== 0) return false;
+  // 先把空白與換行清掉: 從聊天視窗/郵件複製長網址時很容易夾到折行字元,
+  // 而 . 不match 換行, 不清的話整條規則直接失效, 症狀是「明明貼了卻說尚未設定」
+  var raw = (location.hash || "").replace(/\s+/g, "");
+  if (raw.indexOf("#setup=") !== 0) return false;
+  var v = raw.slice(7);
+  try { v = decodeURIComponent(v); } catch (e) { /* 半個 % 之類的壞編碼, 當原字串用 */ }
+  v = v.trim();
+  if (v.indexOf("https://") !== 0) { HASH_REJECTED = true; return false; }
   MEM_PROXY = v;                                     // localStorage 失敗也還能用
   try { localStorage.setItem("tdxProxy", v); } catch (e) {}
   return true;
@@ -1122,6 +1127,9 @@ function initStatus() {
   if (proxyUrl()) {
     st.className = "live-status";
     st.textContent = "已設定代理 · 按「更新」取得即時誤點";
+  } else if (HASH_REJECTED) {
+    st.className = "live-status err";
+    st.textContent = "網址的 #setup= 認不得（要以 https:// 開頭）· 請改用 ⚙ 直接貼上網址";
   } else {
     st.className = "live-status warn";
     st.textContent = "尚未設定代理（按 ⚙ 設定）· 現在按更新只會顯示示範資料";
