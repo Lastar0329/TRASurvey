@@ -983,12 +983,9 @@ document.addEventListener('DOMContentLoaded', function() {
   applyFilters('north-table');
   renderBoard();                      // 先畫表定看板, 按了更新才疊即時誤點
   setInterval(renderBoard, 30000);    // 每 30 秒重算「倒數 / 已過」(純本地計算, 不打網路)
-  if (consumeSetupHash()) {
-    var sp = document.getElementById("setup-panel");
-    if (sp) sp.style.display = "";
-    setupNote("已從連結完成設定，這台裝置以後都記得了。", "ok");
-    refreshLive();
-  }
+  consumeSetupHash();                 // 網址有 #setup= 就(重新)種回設定
+  if (proxyUrl()) refreshLive();      // 已設定就直接抓一次: 開 App 的當下就是要看誤點
+  else initStatus();                  // 沒設定就明講, 不要讓人以為壞了
   try {
     if (localStorage.getItem("tdxAuto") === "1") {
       autoWanted = true;
@@ -1051,10 +1048,13 @@ function setAuto(cb) {
 }
 var liveState = {station: "嘉北", dir: "", hidePast: true};
 
-// 代理網址只存在這台裝置的 localStorage, 不在公開的 HTML 裡
+// 代理網址只存在這台裝置, 不在公開的 HTML 裡。
+// 三層來源: localStorage → 這次開啟時從 #setup= 讀到的值 → 內建(永遠是空的)。
+// 中間那層是為了「localStorage 被擋掉或被清掉」的情況, 見 consumeSetupHash()。
+var MEM_PROXY = "";
 function proxyUrl() {
-  try { return localStorage.getItem("tdxProxy") || PROXY_URL; }
-  catch (e) { return PROXY_URL; }
+  try { var v = localStorage.getItem("tdxProxy"); if (v) return v; } catch (e) {}
+  return MEM_PROXY || PROXY_URL;
 }
 
 function setupNote(msg, cls) {
@@ -1097,17 +1097,35 @@ function clearSetup() {
   if (i) i.value = "";
   refreshSetupNote();
 }
-// 一鍵設定: 開一次 https://<網站>/#setup=<代理網址>, 存好後把 hash 清掉,
-// 這樣網址不會留在書籤或分享出去的連結裡
+// 一鍵設定: 網址帶 #setup=<代理網址> 開啟即完成設定。
+//
+// 刻意「不」把 hash 清掉 —— 這是 iPhone 上的必要設計, 踩過:
+//   1. 加到主畫面的 App 有自己的儲存空間, 不一定跟 Safari 共用 localStorage;
+//   2. Safari 的 ITP 會定期清掉 script 寫入的 localStorage;
+//   3. 若從「已清掉 hash」的網址加到主畫面, 那個捷徑就再也沒有東西能種回設定。
+// 把 #setup= 留在網址裡, 主畫面捷徑每次開啟都會重新種回去, 上面三種情況全部免疫。
+// 代價: 網址變長, 分享連結時會把代理網址一起帶出去 —— 自用 App 可接受。
 function consumeSetupHash() {
   var m = (location.hash || "").match(/^#setup=(.+)$/);
   if (!m) return false;
   var v = decodeURIComponent(m[1]).trim();
   if (v.indexOf("https://") !== 0) return false;
-  try { localStorage.setItem("tdxProxy", v); } catch (e) { return false; }
-  try { history.replaceState(null, "", location.pathname + location.search); }
-  catch (e) { location.hash = ""; }
+  MEM_PROXY = v;                                     // localStorage 失敗也還能用
+  try { localStorage.setItem("tdxProxy", v); } catch (e) {}
   return true;
+}
+
+// 開啟時讓「有沒有設定好」看得見, 不要讓它默默失敗
+function initStatus() {
+  var st = document.getElementById("live-status");
+  if (!st) return;
+  if (proxyUrl()) {
+    st.className = "live-status";
+    st.textContent = "已設定代理 · 按「更新」取得即時誤點";
+  } else {
+    st.className = "live-status warn";
+    st.textContent = "尚未設定代理（按 ⚙ 設定）· 現在按更新只會顯示示範資料";
+  }
 }
 function nowMin() { var d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
 function pad2(n) { return (n < 10 ? "0" : "") + n; }
